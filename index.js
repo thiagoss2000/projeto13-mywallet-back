@@ -3,10 +3,12 @@ import cors from 'cors';
 import { MongoClient, ObjectId } from "mongodb";
 import bcrypt from 'bcrypt';
 import dotenv from "dotenv";
-dotenv.config();
+import { v4 as uuid } from 'uuid';
 import Joi from "joi";
+dotenv.config();
 
 let users = [];
+let sessions = [];
 
 const app = express();
 app.use(json());
@@ -21,46 +23,40 @@ app.post('/sign-up', (req, res) => {
     res.sendStatus(201);
 })
 
-app.post('/login', (req, res) => {
-    const { body } = req;
+app.post('/sign-in', (req, res) => {
+    const { body, headers } = req;
     if(users.some((el) => bcrypt.compareSync(body.senha, el.senhaCrypt) && el.email == body.email)){
-        res.sendStatus(200);
+        const token = uuid();
+        sessions.push({'user': body.email, 'token': token});
+        res.status(200).send(token);
     }else res.status(401).send('senha incorreta');
 })
 let entrada = [];
-app.post('/entrada', (req, res) => {
-    const { body } = req;
-    if(body.valor){
+app.post('/move', (req, res) => {
+    const { body, headers } = req;
+    console.log(headers.token);
+    if(sessions.some((el) => headers.user == el.user && headers.token == el.token)){
         entrada.push(body);
         res.sendStatus(200);
-    }else res.sendStatus(400);
-})
-let saida = [];
-app.post('/saida', (req, res) => {
-    const { body } = req;
-    if(body.valor){
-        saida.push(body);
-        res.sendStatus(200);
-    }else res.sendStatus(400);
+    }else res.sendStatus(401);
 })
 
-app.put('/entrada', (req, res) => {
+app.put('/move', (req, res) => {
     const { body, headers } = req;
+    if(!sessions.some((el) => headers.user == el.user && headers.token == el.token)) 
+        return res.sendStatus(404);
     if(entrada.some((el) => headers == el)){
         //substiutui por body
         res.sendStatus(200);
     }else res.sendStatus(400);
 })
 
-app.put('/saida', (req, res) => {
-    const { body, headers } = req;
-    if(saida.some((el) => headers == el)){
-        //substiutui por body
-        res.sendStatus(200);
-    }else res.sendStatus(400);
+app.get('/move', (req, res) => {
+    const { headers } = req;
+    if(sessions.some((el) => headers.user == el.user && headers.token == el.token)){
+        res.status(200).send(entrada);
+    }else res.sendStatus(401);
 })
-
-// app.get()
 
 app.listen(5000, () => {
     console.log("server on");
