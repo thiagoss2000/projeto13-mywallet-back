@@ -11,6 +11,17 @@ dotenv.config();
 // let users = [];
 let sessions = [];
 
+const loginSchema = Joi.object({
+    email: Joi.string().email().required(),
+    senha: Joi.required()
+})
+
+const logupSchema = Joi.object({
+    nome: Joi.string().required(),
+    email: Joi.string().email().required(),
+    senha: Joi.required()
+})
+
 const app = express();
 app.use(json());
 app.use(cors());
@@ -25,14 +36,19 @@ promise.then(() => {
 
 app.post('/sign-up', async (req, res) => {
     const { body } = req;
-    const senhaCriptografada = bcrypt.hashSync(body.senha, 10);
     try {
+        const { error, value } = logupSchema.validate(body);
+        if(error){ 
+            res.sendStatus(422);
+            return;
+        }
         const users = await dataBase.collection("contas").find({}).toArray();
-        if(users.some(el => el.email == body.email)){
+        if(users.some(el => el.email == value.email)){
             res.sendStatus(409);
             return;
         }
-        await dataBase.collection("contas").insertOne({'name': body.nome, 'email': body.email, 'senhaCrypt': senhaCriptografada});
+        const senhaCriptografada = bcrypt.hashSync(value.senha, 10);
+        await dataBase.collection("contas").insertOne({'name': value.nome, 'email': value.email, 'senhaCrypt': senhaCriptografada});
         // users.push({'name': body.nome, email: body.email, senhaCrypt: senhaCriptografada});
         res.sendStatus(201);
     } catch {
@@ -41,12 +57,17 @@ app.post('/sign-up', async (req, res) => {
 })
 
 app.post('/sign-in', async (req, res) => {
-    const { body, headers } = req;
+    const { body } = req;
     try {
         const users = await dataBase.collection("contas").find({}).toArray();
-        if(users.some((el) => bcrypt.compareSync(body.senha, el.senhaCrypt) && el.email == body.email)){
+        const { error, value } = loginSchema.validate(body);
+        if(error){ 
+            res.sendStatus(422);
+            return;
+        }
+        if(users.some((el) => bcrypt.compareSync(value.senha, el.senhaCrypt) && el.email == value.email)){
             const token = uuid();
-            sessions.push({'user': body.email, 'token': token});
+            sessions.push({'user': value.email, 'token': token});
             res.status(200).send(token);
         }else res.status(401).send('senha incorreta');
     } catch {
