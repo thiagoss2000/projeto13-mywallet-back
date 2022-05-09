@@ -27,7 +27,7 @@ app.use(json());
 app.use(cors());
 
 let dataBase = null;
-const mongoClient = new MongoClient("mongodb://localhost:27017");
+const mongoClient = new MongoClient(process.env.MONGO_URI);
 const promise = mongoClient.connect();
 promise.then(() => {
     dataBase = mongoClient.db("data_mywallet");
