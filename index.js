@@ -4,57 +4,107 @@ import { MongoClient, ObjectId } from "mongodb";
 import bcrypt from 'bcrypt';
 import dotenv from "dotenv";
 import { v4 as uuid } from 'uuid';
+import dayjs from "dayjs";
 import Joi from "joi";
 dotenv.config();
 
-let users = [];
+// let users = [];
 let sessions = [];
 
 const app = express();
 app.use(json());
 app.use(cors());
 
-app.post('/sign-up', (req, res) => {
-    const { body } = req;
-    console.log(body);
-    const senhaCriptografada = bcrypt.hashSync(body.senha, 10);
-    console.log(senhaCriptografada);
-    users.push({'name': body.nome, email: body.email, senhaCrypt: senhaCriptografada});
-    res.sendStatus(201);
+let dataBase = null;
+const mongoClient = new MongoClient("mongodb://localhost:27017");
+const promise = mongoClient.connect();
+promise.then(() => {
+    dataBase = mongoClient.db("data_mywallet");
+    console.log('banco conectado');
 })
 
-app.post('/sign-in', (req, res) => {
+app.post('/sign-up', async (req, res) => {
+    const { body } = req;
+    const senhaCriptografada = bcrypt.hashSync(body.senha, 10);
+    try {
+        const users = await dataBase.collection("contas").find({}).toArray();
+        if(users.some(el => el.email == body.email)){
+            res.sendStatus(409);
+            return;
+        }
+        await dataBase.collection("contas").insertOne({'name': body.nome, 'email': body.email, 'senhaCrypt': senhaCriptografada});
+        // users.push({'name': body.nome, email: body.email, senhaCrypt: senhaCriptografada});
+        res.sendStatus(201);
+    } catch {
+        res.sendStatus(500);        
+    }
+})
+
+app.post('/sign-in', async (req, res) => {
     const { body, headers } = req;
-    if(users.some((el) => bcrypt.compareSync(body.senha, el.senhaCrypt) && el.email == body.email)){
-        const token = uuid();
-        sessions.push({'user': body.email, 'token': token});
-        res.status(200).send(token);
-    }else res.status(401).send('senha incorreta');
+    try {
+        const users = await dataBase.collection("contas").find({}).toArray();
+        if(users.some((el) => bcrypt.compareSync(body.senha, el.senhaCrypt) && el.email == body.email)){
+            const token = uuid();
+            sessions.push({'user': body.email, 'token': token});
+            res.status(200).send(token);
+        }else res.status(401).send('senha incorreta');
+    } catch {
+        res.sendStatus(500);        
+    }
 })
 let entrada = [];
-app.post('/move', (req, res) => {
+app.post('/move', async (req, res) => {
     const { body, headers } = req;
     console.log(headers.token);
     if(sessions.some((el) => headers.user == el.user && headers.token == el.token)){
-        entrada.push(body);
-        res.sendStatus(200);
+        try {
+            await dataBase.collection("movimento").insertOne(
+                {'valor': parseFloat(body.valor).toFixed(2), 
+                'descricao': body.descricao, 
+                'date' : dayjs().format('DD-MM'), 
+                'tipo': body.tipo, 
+                'user': headers.user}
+                );
+        //entrada.push({'valor': body.valor, 'descricao': body.descricao, 'date' : dayjs().format('DD-MM'), 'tipo': body.tipo});
+            res.sendStatus(200);
+        } catch { res.sendStatus(500) };
     }else res.sendStatus(401);
 })
 
-app.put('/move', (req, res) => {
-    const { body, headers } = req;
-    if(!sessions.some((el) => headers.user == el.user && headers.token == el.token)) 
-        return res.sendStatus(404);
-    if(entrada.some((el) => headers == el)){
-        //substiutui por body
-        res.sendStatus(200);
-    }else res.sendStatus(400);
+app.put('/move', async (req, res) => {
+    const { body, headers, query } = req;
+    console.log(headers.token);
+    if(sessions.some((el) => headers.user == el.user && headers.token == el.token)){
+        try {
+            await dataBase.collection("movimento").updateOne({'_id' : ObjectId(query.ID)}, {$set: {'valor': parseFloat(body.valor).toFixed(2), 'descricao': body.descricao}});
+        //entrada.push({'valor': body.valor, 'descricao': body.descricao, 'date' : dayjs().format('DD-MM'), 'tipo': body.tipo});
+            res.sendStatus(200);
+        } catch { res.sendStatus(500) };
+    }else res.sendStatus(401);
 })
 
-app.get('/move', (req, res) => {
+app.get('/move', async (req, res) => {
     const { headers } = req;
+    console.log(headers.token)
+    try {
+        const name = await dataBase.collection("contas").findOne({email: headers.user}); 
+        const movimento = await dataBase.collection("movimento").find({user: headers.user}).toArray();
+        // const movimento = movimentosAll.filter((el) => headers.user == el.user);
+        if(sessions.some((el) => headers.user == el.user && headers.token == el.token)){
+            res.status(200).send({movimento: movimento, name: name.name});
+        }else res.sendStatus(401);
+    } catch {
+        res.sendStatus(501);
+    }
+})
+
+app.delete('/move', async (req, res) => {
+    const { headers, query } = req;
     if(sessions.some((el) => headers.user == el.user && headers.token == el.token)){
-        res.status(200).send(entrada);
+        console.log(query.ID);
+        await dataBase.collection("movimento").deleteOne({'_id' : ObjectId(query.ID)});
+        res.sendStatus(200);
     }else res.sendStatus(401);
 })
 
